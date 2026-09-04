@@ -37,6 +37,14 @@ impl Client {
         Self::handle(req.send_json(body.clone()))
     }
 
+    pub fn patch(&self, path: &str, body: &Value) -> Result<Value, String> {
+        let req = self
+            .agent
+            .request("PATCH", &self.url(path))
+            .set("Authorization", &format!("token {}", self.token));
+        Self::handle(req.send_json(body.clone()))
+    }
+
     fn handle(result: Result<ureq::Response, ureq::Error>) -> Result<Value, String> {
         match result {
             Ok(resp) => {
