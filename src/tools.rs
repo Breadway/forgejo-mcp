@@ -168,6 +168,36 @@ pub fn list() -> Vec<Tool> {
             ]),
         },
         Tool {
+            name: "create_repo",
+            description: "Create a repository, for the token's user or for an organization, and return its clone URLs",
+            schema: with_fields(
+                &[
+                    ("name", "string!", "Repository name"),
+                    ("owner", "string", "Owner: a user or org (default the token's user)"),
+                    ("description", "string", "Repository description"),
+                    ("private", "boolean", "Private repository (default true)"),
+                    ("auto_init", "boolean", "Create an initial commit with a README (default false)"),
+                    ("default_branch", "string", "Default branch (only with auto_init, default main)"),
+                ],
+                &[],
+            ),
+        },
+        Tool {
+            name: "push_repo",
+            description: "Push a local repository over HTTPS with the configured token, and set origin to that HTTPS URL. No SSH key or stored git credential needed.",
+            schema: with_fields(
+                &[
+                    ("path", "string!", "Local repository path"),
+                    ("owner", "string", "Owner: a user or org (default the token's user)"),
+                    ("repo", "string", "Repository name (default the folder name)"),
+                    ("branch", "string", "Branch to push (default the checked-out branch)"),
+                    ("remote", "string", "Remote name (default origin)"),
+                    ("set_remote", "boolean", "Point the remote at the HTTPS URL first (default true)"),
+                ],
+                &[],
+            ),
+        },
+        Tool {
             name: "whoami",
             description: "Get the authenticated user for the configured token",
             schema: json!({ "type": "object", "properties": {} }),
@@ -232,7 +262,10 @@ fn arg_int_opt(args: &Value, key: &str) -> Option<i64> {
 }
 
 fn encode_path(path: &str) -> String {
-    path.split('/').map(encode_segment).collect::<Vec<_>>().join("/")
+    path.split('/')
+        .map(encode_segment)
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Builds a `page=`/`limit=` query fragment (without leading `?`/`&`) from
@@ -290,7 +323,11 @@ pub fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> 
         }
         "get_repo" => {
             let (owner, repo) = owner_repo(args)?;
-            client.get(&format!("/repos/{}/{}", encode_segment(owner), encode_segment(repo)))
+            client.get(&format!(
+                "/repos/{}/{}",
+                encode_segment(owner),
+                encode_segment(repo)
+            ))
         }
         "list_issues" => {
             let (owner, repo) = owner_repo(args)?;
@@ -321,7 +358,11 @@ pub fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> 
             let title = arg_str(args, "title")?;
             let body = arg_str_opt(args, "body").unwrap_or("");
             client.post(
-                &format!("/repos/{}/{}/issues", encode_segment(owner), encode_segment(repo)),
+                &format!(
+                    "/repos/{}/{}/issues",
+                    encode_segment(owner),
+                    encode_segment(repo)
+                ),
                 &json!({ "title": title, "body": body }),
             )
         }
@@ -387,7 +428,11 @@ pub fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> 
             let base = arg_str(args, "base")?;
             let body = arg_str_opt(args, "body").unwrap_or("");
             client.post(
-                &format!("/repos/{}/{}/pulls", encode_segment(owner), encode_segment(repo)),
+                &format!(
+                    "/repos/{}/{}/pulls",
+                    encode_segment(owner),
+                    encode_segment(repo)
+                ),
                 &json!({ "title": title, "head": head, "base": base, "body": body }),
             )
         }
@@ -450,7 +495,11 @@ pub fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> 
         "list_branches" => {
             let (owner, repo) = owner_repo(args)?;
             let url = append_query(
-                format!("/repos/{}/{}/branches", encode_segment(owner), encode_segment(repo)),
+                format!(
+                    "/repos/{}/{}/branches",
+                    encode_segment(owner),
+                    encode_segment(repo)
+                ),
                 &paging_query(args),
             );
             client.get(&url)
@@ -479,7 +528,11 @@ pub fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> 
                 query.push_str(&format!("sha={}", encode_segment(reference)));
             }
             let url = append_query(
-                format!("/repos/{}/{}/commits", encode_segment(owner), encode_segment(repo)),
+                format!(
+                    "/repos/{}/{}/commits",
+                    encode_segment(owner),
+                    encode_segment(repo)
+                ),
                 &query,
             );
             client.get(&url)
@@ -497,7 +550,11 @@ pub fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> 
         "list_labels" => {
             let (owner, repo) = owner_repo(args)?;
             let url = append_query(
-                format!("/repos/{}/{}/labels", encode_segment(owner), encode_segment(repo)),
+                format!(
+                    "/repos/{}/{}/labels",
+                    encode_segment(owner),
+                    encode_segment(repo)
+                ),
                 &paging_query(args),
             );
             client.get(&url)
@@ -516,6 +573,43 @@ pub fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> 
             );
             client.get(&url)
         }
+        "create_repo" => {
+            let name = arg_str(args, "name")?;
+            let mut body = serde_json::Map::new();
+            body.insert("name".to_string(), json!(name));
+            if let Some(description) = arg_str_opt(args, "description") {
+                body.insert("description".to_string(), json!(description));
+            }
+            let private = args.get("private").and_then(Value::as_bool).unwrap_or(true);
+            body.insert("private".to_string(), json!(private));
+            let auto_init = args
+                .get("auto_init")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            body.insert("auto_init".to_string(), json!(auto_init));
+            if auto_init {
+                if let Some(branch) = arg_str_opt(args, "default_branch") {
+                    body.insert("default_branch".to_string(), json!(branch));
+                }
+            }
+            let owner = arg_str_opt(args, "owner")
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let route = match owner {
+                Some(owner) => {
+                    let me = client.get("/user")?;
+                    let login = me.get("login").and_then(Value::as_str).unwrap_or_default();
+                    if owner.eq_ignore_ascii_case(login) {
+                        "/user/repos".to_string()
+                    } else {
+                        format!("/orgs/{}/repos", encode_segment(owner))
+                    }
+                }
+                None => "/user/repos".to_string(),
+            };
+            client.post(&route, &Value::Object(body))
+        }
+        "push_repo" => push_repo(client, args),
         "whoami" => client.get("/user"),
         "list_my_orgs" => client.get("/user/orgs"),
         other => Err(format!("unknown tool '{other}'")),
@@ -524,4 +618,163 @@ pub fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> 
 
 fn owner_repo(args: &Value) -> Result<(&str, &str), String> {
     Ok((arg_str(args, "owner")?, arg_str(args, "repo")?))
+}
+
+fn expand_home(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return format!("{home}/{rest}");
+        }
+    }
+    path.to_string()
+}
+
+fn git_output(path: &str, args: &[&str]) -> Result<String, String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .map_err(|e| format!("could not run git: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Push with the API token through an askpass helper, so nothing is stored in git config or the remote URL.
+fn push_repo(client: &Client, args: &Value) -> Result<Value, String> {
+    use std::process::Command;
+
+    let path = expand_home(arg_str(args, "path")?);
+    let folder = std::path::Path::new(&path);
+    if !folder.is_dir() {
+        return Err(format!("not a folder: {path}"));
+    }
+    let remote = arg_str_opt(args, "remote").unwrap_or("origin");
+    let set_remote = args
+        .get("set_remote")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
+    let me = client.get("/user")?;
+    let login = me
+        .get("login")
+        .and_then(Value::as_str)
+        .ok_or("the token's /user response has no login")?
+        .to_string();
+    let owner = arg_str_opt(args, "owner")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&login)
+        .to_string();
+    let repo = match arg_str_opt(args, "repo")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(repo) => repo.to_string(),
+        None => folder
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or("could not read the folder name; pass repo")?
+            .to_string(),
+    };
+    let branch = match arg_str_opt(args, "branch") {
+        Some(branch) => branch.to_string(),
+        None => git_output(&path, &["rev-parse", "--abbrev-ref", "HEAD"])?,
+    };
+    if branch == "HEAD" {
+        return Err("the repository has no checked-out branch; pass branch".into());
+    }
+
+    let url = format!(
+        "{}/{}/{}.git",
+        client.base_url().trim_end_matches('/'),
+        encode_segment(&owner),
+        encode_segment(&repo)
+    );
+    if set_remote {
+        let exists = Command::new("git")
+            .arg("-C")
+            .arg(&path)
+            .args(["remote", "get-url", remote])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        let mut cmd = Command::new("git");
+        cmd.arg("-C").arg(&path).arg("remote");
+        if exists {
+            cmd.arg("set-url");
+        } else {
+            cmd.arg("add");
+        }
+        let out = cmd
+            .arg(remote)
+            .arg(&url)
+            .output()
+            .map_err(|e| format!("could not run git remote: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "could not point {remote} at {url}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+    }
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let askpass =
+        std::env::temp_dir().join(format!("forgejo-askpass-{}-{stamp}.sh", std::process::id()));
+    std::fs::write(
+        &askpass,
+        "#!/bin/sh\ncase \"$1\" in *Username*) printf '%s\\n' \"$ROAMIES_GIT_USER\";; *) printf '%s\\n' \"$ROAMIES_GIT_TOKEN\";; esac\n",
+    )
+    .map_err(|e| format!("could not write the askpass helper: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&askpass, std::fs::Permissions::from_mode(0o700));
+    }
+
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&path)
+        .args(["push", "-u", remote, &branch])
+        .env("GIT_ASKPASS", &askpass)
+        .env("GIT_ASKPASS_REQUIRE", "force")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        // A global url.<ssh>.insteadOf can rewrite the HTTPS URL back to SSH. Ignore global and system
+        // config for this push so the token path is the one that runs; local config still applies.
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("ROAMIES_GIT_USER", &login)
+        .env("ROAMIES_GIT_TOKEN", client.token())
+        .output();
+    let _ = std::fs::remove_file(&askpass);
+    let out = out.map_err(|e| format!("could not run git push: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() {
+        return Err(format!(
+            "git push failed ({})\n{}\n{}",
+            out.status,
+            stdout.trim(),
+            stderr.trim()
+        ));
+    }
+    Ok(json!({
+        "ok": true,
+        "remote": remote,
+        "url": url,
+        "branch": branch,
+        "stdout": stdout.trim(),
+        "stderr": stderr.trim(),
+    }))
 }

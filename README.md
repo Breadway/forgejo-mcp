@@ -25,7 +25,7 @@ Binary at `target/release/forgejo-mcp`.
 `create_issue`, `edit_issue`, `comment_issue`, `list_pulls`, `get_pull`,
 `create_pull`, `edit_pull`, `merge_pull`, `list_pull_files`, `list_branches`,
 `get_file_contents`, `list_commits`, `get_commit_status`, `list_labels`,
-`list_milestones`, `whoami`, `list_my_orgs`.
+`list_milestones`, `create_repo`, `push_repo`, `whoami`, `list_my_orgs`.
 
 List endpoints (`list_repos`, `search_repos`, `list_issues`, `list_pulls`,
 `list_pull_files`, `list_branches`, `list_commits`, `list_labels`,
@@ -37,11 +37,24 @@ reversible, no merge or delete capability.
 `merge_pull` actually merges (`style`: merge/rebase/rebase-merge/squash/
 fast-forward-only, default `merge`; optional `title`/`message`;
 `delete_branch` to remove the head branch after merging) — irreversible via
-this server. Not implemented (higher-risk, harder to reverse): repo
-create/delete, file write/delete, release/tag management.
+this server.
+
+`create_repo` creates a repository for the token's user or an org. It is
+private by default, so callers must pass `private: false` for a public one.
+It returns the clone URLs.
+
+`push_repo` commits nothing: it pushes the current branch of a local
+repository. It points `origin` at the HTTPS clone URL, then runs `git push`
+with the API token through a temporary askpass helper. The token is never
+written to git config, the remote URL or the output, and no SSH key is
+needed. Global and system git config are ignored for that push, so a
+`url.<ssh>.insteadOf` rewrite cannot send it back over SSH.
+
+Not implemented (higher-risk, harder to reverse): repo delete, file
+write/delete, release/tag management.
 
 ## Claude Code
 
 ```
-claude mcp add forgejo /home/breadway/Projects/forgejo-mcp/target/release/forgejo-mcp
+claude mcp add forgejo /home/breadway/Projects/Tools/forgejo-mcp/target/release/forgejo-mcp
 ```

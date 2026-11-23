@@ -21,6 +21,14 @@ impl Client {
         format!("{}/api/v1{}", self.base_url, path)
     }
 
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
     pub fn get(&self, path: &str) -> Result<Value, String> {
         let req = self
             .agent
@@ -57,7 +65,8 @@ impl Client {
                 if body.trim().is_empty() {
                     return Ok(Value::Null);
                 }
-                serde_json::from_str(&body).map_err(|e| format!("failed to parse response JSON: {e}"))
+                serde_json::from_str(&body)
+                    .map_err(|e| format!("failed to parse response JSON: {e}"))
             }
             Err(ureq::Error::Status(code, resp)) => {
                 let body = resp.into_string().unwrap_or_default();
