@@ -107,6 +107,21 @@ pub fn list() -> Vec<Tool> {
             ]),
         },
         Tool {
+            name: "merge_pull",
+            description: "Merge a pull request",
+            schema: owner_repo_schema(&[
+                ("index", "integer!", "PR number"),
+                (
+                    "style",
+                    "string",
+                    "Merge style: merge, rebase, rebase-merge, squash, or fast-forward-only (default merge)",
+                ),
+                ("title", "string", "Merge commit title (optional)"),
+                ("message", "string", "Merge commit message (optional)"),
+                ("delete_branch", "boolean", "Delete the head branch after merging (default false)"),
+            ]),
+        },
+        Tool {
             name: "list_pull_files",
             description: "List files changed by a pull request",
             schema: owner_repo_schema(&[("index", "integer!", "PR number"), PAGE, LIMIT]),
@@ -391,6 +406,31 @@ pub fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> 
                     index
                 ),
                 &body,
+            )
+        }
+        "merge_pull" => {
+            let (owner, repo) = owner_repo(args)?;
+            let index = arg_int(args, "index")?;
+            let style = arg_str_opt(args, "style").unwrap_or("merge");
+            let mut body = serde_json::Map::new();
+            body.insert("Do".to_string(), json!(style));
+            if let Some(t) = arg_str_opt(args, "title") {
+                body.insert("MergeTitleField".to_string(), json!(t));
+            }
+            if let Some(m) = arg_str_opt(args, "message") {
+                body.insert("MergeMessageField".to_string(), json!(m));
+            }
+            if let Some(d) = args.get("delete_branch").and_then(Value::as_bool) {
+                body.insert("delete_branch_after_merge".to_string(), json!(d));
+            }
+            client.post(
+                &format!(
+                    "/repos/{}/{}/pulls/{}/merge",
+                    encode_segment(owner),
+                    encode_segment(repo),
+                    index
+                ),
+                &Value::Object(body),
             )
         }
         "list_pull_files" => {

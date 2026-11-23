@@ -51,8 +51,13 @@ impl Client {
                 if resp.status() == 204 {
                     return Ok(Value::Null);
                 }
-                resp.into_json::<Value>()
-                    .map_err(|e| format!("failed to parse response JSON: {e}"))
+                let body = resp
+                    .into_string()
+                    .map_err(|e| format!("failed to read response body: {e}"))?;
+                if body.trim().is_empty() {
+                    return Ok(Value::Null);
+                }
+                serde_json::from_str(&body).map_err(|e| format!("failed to parse response JSON: {e}"))
             }
             Err(ureq::Error::Status(code, resp)) => {
                 let body = resp.into_string().unwrap_or_default();
